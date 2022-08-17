@@ -1,0 +1,2627 @@
+---
+title: "COVID-19 Crisis Response Evaluation"
+subtitle: "Analysis of Survey v2, beginning May 2020"
+author:
+- affiliation: Program Evaluator
+  email: nicole.harty@mhcd.org
+  name: Nicole Harty
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    css: template.css
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+
+library(RODBC)
+library(tidyverse)
+library(likert)
+library(lubridate)
+library(kableExtra)
+library(qualtRics)
+```
+```{r setup2, results='hide'}
+#READ IN THE SOURCE SCRIPT THAT YOU USED TO CLEAN AND PREP YOUR DATA
+source('QualtricsDataWrangling_v2survey.R', echo = FALSE)
+
+#SET WEEK - CHECK THAT THIS IS RIGHT FOR THE REPORT YOU WANT TO SEE. THE TABLES FOR INCLUSION IN THE WEEKLY REPORT (END OF THIS REPORT) ARE
+#DESIGNED TO ONLY REPORT THE TOP THEMES FOR EACH WEEK!!!
+wk="2"
+```
+
+#Respondents Summary
+Overall, we have received a response from **`r OverallResponsePercent`** of our staff. We have received a total of **`r COVIDtrimDemos_v2 %>% tally()`** responses, including responses from the same staff over multiple weeks. We received differing number of responses each week:
+```{r label=RespondentsAndRR}
+WeeklyRespondents <- COVIDtrimDemos_v2 %>%
+  mutate("Total Responses to Date" = n()) %>%
+  group_by(Week, `Total Responses to Date`) %>%
+  summarise("Total Respondents per Week" = n_distinct(RecipientEmail)) %>%
+  select(Week, `Total Respondents per Week`, `Total Responses to Date`)
+WeeklyRespondents %>%
+  kable(caption = "Total Respondents Each Week") %>%
+  footnote(general = "NA responses include 7 responses submitted during 'survey close' period between the first and second distributions.")
+
+RRdemos_v2 %>%
+  select(StaffID, Response, ResponseNum) %>%
+  distinct() %>%
+  summarise("Unique Respondents" = sum(ResponseNum), Total = n_distinct(StaffID), 
+            "Percent Responded" = scales::percent(`Unique Respondents`/Total)) %>%
+  kable(caption = "Overall Response Rate")
+```
+
+```{r label=ResponsesEachPerson}
+RRdemos_v2 %>%
+  filter(ResponseNum!=0) %>%
+  group_by(StaffID) %>%
+  summarise("Number of Weekly Responses" = n_distinct(Week)) %>%
+  group_by(`Number of Weekly Responses`) %>%
+  summarise(Count = n()) %>%
+  kable(caption = "How Many People Responses Multiple Weeks?")
+```
+
+```{r label=ClinicalNonClinicalBreakdown}
+ResponseDemosClinical <- COVIDtrimDemos_v2 %>%
+  filter(Week==wk) %>%
+  group_by(ClinicalYN) %>%
+  summarise(n = n()) %>%
+  rename("Provides Clinical Services" = ClinicalYN) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) 
+
+COVIDtrimDemos_v2 %>%
+  group_by(ClinicalYN, Week) %>%
+  summarise(n = n()) %>%
+  spread(ClinicalYN, n) %>%
+  mutate("Percent Clinical" = scales::percent(Yes/(No+Yes)))  %>%
+  select(Week, "Clinical" = Yes, "Non-Clinical" = No, "Percent Clinical") %>%
+  kable(caption = "Weekly Response Count by Clinical Staff Role")
+
+COVIDtrimDemos_v2 %>%
+  group_by(Week, ClinicalYN) %>%
+  summarise(n = n()) %>%
+  spread(ClinicalYN, n) %>%
+#  select(-"<NA>") %>%
+  drop_na() %>%
+  mutate("Percent of Responses Non-Clinical" = scales::percent(No/(No+Yes)), "Percent of Responses Clinical" = scales::percent(Yes/(No+Yes))) %>%
+  select(Week, "Percent of Responses Non-Clinical", "Percent of Responses Clinical") %>%
+  kable(caption = "Responses Grouped by Staff Providing Clinical Services")
+```
+
+##Respondent Demographics
+<!--Add in grouping for response week - the joins for weekly tables need to be checked!!-->
+<!--This section is also in the full report -- update to match!-->
+This section is intended to show the demographic breakdown of responses *by week*. The next section is a summary of any/all staff who responded, only counting them once.
+
+##Overall Demographics
+The tables below describe the *overall* response rate by various groupings. It is a count of the number of staff who ever responded to the survey and does not account for which week they responded, but staff who responded more than once are only counted once.
+```{r label=ResponseRate}
+RRdemosTeamGrouping <- RRdemos_v2 %>%
+  select(StaffID, TeamGrouping, ResponseNum) %>%
+  distinct() %>%
+  group_by(TeamGrouping) %>%
+  summarise(Respondents = sum(ResponseNum), Total = n_distinct(`StaffID`), "Percent Responded" = scales::percent(Respondents/Total))
+RRdemosTeamGrouping %>%
+  kable(caption = "Overall Response Rate by Team Grouping")
+
+RRdemos_v2 %>%
+  select(StaffID, ClinicalYN, ResponseNum) %>%
+  distinct() %>%
+  group_by(ClinicalYN) %>%
+  summarise(Respondents = sum(ResponseNum), Total = n_distinct(`StaffID`), "Percent Responded" = scales::percent(Respondents/Total)) %>%
+  kable(caption = "Overall Response Rate by Clinical Role")
+
+RRdemos_v2 %>%
+  select(-Week) %>%
+  distinct() %>%
+  group_by(`Primary Team Division`) %>%
+  summarise(Respondents = sum(ResponseNum), Total = n_distinct(`StaffID`), "Percent Responded" = scales::percent(Respondents/Total)) %>%
+  kable(caption = "Overall Response Rate by Division")
+
+RRdemos_v2 %>%
+  select(StaffID, `Primary Team`, ResponseNum) %>%
+  distinct() %>%
+  group_by(`Primary Team`) %>%
+  summarise(Respondents = sum(ResponseNum), Total = n_distinct(`StaffID`), "Percent Responded" = scales::percent(Respondents/Total)) %>%
+  kable(caption = "Overall Response Rate by Team")
+```
+
+``` {r label=RespondentDemographics}
+COVIDtrimDemos_v2 %>%
+# group_by(Week) %>%
+  group_by(`Primary Team Division`) %>%
+  summarise(n = n()) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Primary Team Division")
+
+COVIDtrimDemos_v2 %>%
+# group_by(Week) %>%
+  group_by(`Length of Employment`) %>%
+  summarise(n = n_distinct(`StaffID`)) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Length of Employment")
+
+COVIDtrimDemos_v2 %>%
+# group_by(Week) %>%
+  group_by(Gender) %>%
+  summarise(n = n_distinct(`StaffID`)) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Gender")
+
+COVIDtrimDemos_v2 %>%
+# group_by(Week) %>%
+  group_by(Race) %>%
+  summarise(n = n_distinct(`StaffID`)) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Race")
+
+COVIDtrimDemos_v2 %>%
+# group_by(Week) %>%
+  group_by(`Is Supervisor?`) %>%
+  summarise(n = n_distinct(`StaffID`)) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Supervisory Status")
+```
+
+
+
+#Current Week Quantitative Results
+```{r label=WorkLocationSummary}
+QuantData <- QuantData %>%
+  mutate(InPersonSummary=ifelse(WorkInPersonYN=="Yes","Yes","No"), WorkLocSummary=ifelse(WorkLocation=="From home","From home","MHCD or Community"))
+QuantData %>%
+  filter(Week==wk) %>%
+  mutate(Total = n_distinct(StaffID)) %>%
+  group_by(WorkLocation, Total) %>%
+  summarise(Count = n()) %>%
+  mutate("Percent of Week's Responses" = scales::percent(Count/Total)) %>%
+  select(-Total) %>%
+  kable(caption = "Work Location of Respondents")
+
+QuantData %>%
+  filter(Week==wk) %>%
+  mutate(Total = n_distinct(StaffID)) %>%
+  group_by(InPersonSummary, Total) %>%
+  summarise(Count = n()) %>%
+  mutate("Percent of Week's Responses" = scales::percent(Count/Total)) %>%
+  select(-Total) %>%
+  kable(caption = "Percent of Respondents Providing Direct In-Person Services")
+
+QuantData %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Total = n_distinct(StaffID)) %>%
+  group_by(InPersonSummary, Total) %>%
+  summarise(Count = n()) %>%
+  mutate("Percent of Week's Responses" = scales::percent(Count/Total)) %>%
+  select(-Total) %>%
+  kable(caption = "Percent of Respondents Working at MHCD location or in Community who Provided Direct In-Person Services")
+
+QuantData %>%
+  filter(Week==wk, InPersonSummary=="Yes") %>%
+  mutate(Total = n_distinct(StaffID)) %>%
+  group_by(WorkLocation,Total) %>%
+  summarise(Count = n()) %>%
+  mutate("Percent of Staff Providing Direct In-Person Services" = scales::percent(Count/Total)) %>%
+  select(-Total) %>%
+  kable(caption = "Work Location of those Working In Person")
+
+```
+##Challenges Summary, All Responses
+```{r label=TopChallengesSummary}
+QuantChallSummaryTable <- QuantData %>%
+  filter(Week==wk) %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) 
+QuantChallSummaryTableTOP <- QuantChallSummaryTable %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`) %>%
+  arrange(desc(N))
+QuantChallSummaryTableTOP %>%
+  kable(caption = "Top Challenge: Number and Percentage of People Selecting Each Challenge Type") %>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges")
+
+QuantChallSummaryTable %>%
+  select(Problem, "N" = `Any Challenge`, `Any Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Any Challenge: Number and Percentage of People Selecting Each Challenge Type") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected the problem as 'Challenge but not Top' or 'Top Challenge'")
+
+QuantChallSummaryTable %>%
+  select(Problem, "N" = `Not a Challenge`, `Not a Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Not a Challenge: Number and Percentage of People Selecting Each Challenge Type") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected the problem as 'Not a Challenge'")
+  
+```
+
+##Challenges Summary, Working from Home
+```{r label=TopChellengesSummary_WFH}
+QuantChallSummaryTableWFH <- QuantData %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) 
+QuantChallSummaryTableWFH %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Work from Home Top Challenge") %>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges")
+
+QuantChallSummaryTableWFH %>%
+  select(Problem, "N" = `Any Challenge`, `Any Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Work From Home Any Challenge") %>%
+  footnote(general = "Percentage is the percentage of all the week's responses who selected 'Work from Home' AND the problem as 'Challenge but not Top' or 'Top Challenge'")
+
+QuantChallSummaryTableWFH %>%
+  select(Problem, "N" = `Not a Challenge`, `Not a Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Work from Home Not a Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'Work from Home' AND the problem as 'Not a Challenge'")
+```
+
+##Challenges Summary, Working at MHCD or In Community
+```{r label=TopChellengesSummary_notWFH}
+QuantChallSummaryTableNotWFH <- QuantData %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) 
+QuantChallSummaryTableNotWFH %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "MHCD or Community-Based Top Challenge") %>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges")
+
+QuantChallSummaryTableNotWFH %>%
+  select(Problem, "N" = `Any Challenge`, `Any Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "MHCD or Community-Based Any Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'work at MHCD or in community' AND the problem as 'Challenge but not Top' or 'Top Challenge'")
+
+QuantChallSummaryTableNotWFH %>%
+  select(Problem, "N" = `Not a Challenge`, `Not a Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "MHCD or Community-Based Not a Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'work at MHCD or in community' AND the problem as 'Not a Challenge'")
+```
+
+##Challenges Summary, Working In Person
+```{r label=TopChellengesSummary_InPerson}
+QuantChallSummaryTableInPerson <- QuantData %>%
+  filter(Week==wk, InPersonSummary=="Yes") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  replace(., is.na(.), 0) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) 
+QuantChallSummaryTableInPerson %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "In Person Top Challenge") %>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges")
+
+QuantChallSummaryTableInPerson %>%
+  select(Problem, "N" = `Any Challenge`, `Any Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "In Person Any Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'provide direct in person services' AND the problem as 'Challenge but not Top' or 'Top Challenge'")
+
+QuantChallSummaryTableNotWFH %>%
+  select(Problem, "N" = `Not a Challenge`, `Not a Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "In Person Not a Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'provide direct in person services' AND the problem as 'Not a Challenge'")
+```
+##Challenges Summary, Top Challenges Stratifications
+**THIS TABLE IS NEW AS OF JUNE 8 2020**
+
+```{r label=TopChallengesSummary_Stratified}
+QuantData %>%
+  filter(Week==wk) %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(WorkLocation,Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  replace(., is.na(.), 0) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`,
+         "Top Challenge Percent" = (`Top Challenge`/Total)) %>%
+  select(WorkLocation, Problem, `Top Challenge Percent`) %>%
+  spread(WorkLocation, `Top Challenge Percent`) %>%
+  arrange(desc(`From home`)) %>%
+  mutate_at(vars(c("From home", "At an MHCD location", "In the community")),
+            .funs = scales::percent
+                ) %>%
+  kable(caption = "Grouped by Work Location: Percentage of People Selecting Each Challenge Type as TOP CHALLENGE")%>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges and any number of 'Challenge but not Top'")
+
+QuantData %>%
+  filter(Week==wk) %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate("In Person?" = ifelse(WorkLocation=="From home","No",
+                           ifelse(WorkInPersonYN=="Yes","Yes","No"))) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(`In Person?`,Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  replace(., is.na(.), 0) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`,
+         "Top Challenge Percent" = (`Top Challenge`/Total)) %>%
+  select(`In Person?`, Problem, `Top Challenge Percent`) %>%
+  spread(`In Person?`, `Top Challenge Percent`) %>%
+  arrange(desc(`No`)) %>%
+  mutate_at(vars(c("No", "Yes")),
+            .funs = scales::percent
+                ) %>%
+  kable(caption = "Grouped by In Person Work: Percentage of People Selecting Each Challenge Type as TOP CHALLENGE")%>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges and any number of 'Challenge but not Top'")
+```
+
+
+#Week over Week Quantitative Comparison
+```{r label=TotalResponsesPerWeekVariables}
+n1 <- WeeklyRespondents[[1,2]]
+n2 <- (WeeklyRespondents[[2,2]])
+# n3 <- (WeeklyRespondents[[3,2]])
+# n4 <- (WeeklyRespondents[[4,2]])
+# n5 <- (WeeklyRespondents[[5,2]])
+```
+
+```{r label=WorkLocationSummaryTimeSeries}
+QuantData %>%
+  left_join(WeeklyRespondents, by = "Week") %>%
+  group_by(Week, WorkLocation, `Total Respondents per Week`) %>%
+  summarise(Count = n()) %>%
+  mutate("Percent of Week's Responses" = scales::percent(Count/`Total Respondents per Week`)) %>%
+  select(WorkLocation, "Percent of Week's Responses") %>%
+  spread(Week, "Percent of Week's Responses") %>%
+  kable(caption = "Work Location of Respondents")
+
+QuantData %>%
+  left_join(WeeklyRespondents, by = "Week") %>%
+  group_by(Week, InPersonSummary, `Total Respondents per Week`) %>%
+  summarise(Count = n()) %>%
+  mutate("Percent of Week's Responses" = scales::percent(Count/`Total Respondents per Week`)) %>%
+  select(InPersonSummary, "Percent of Week's Responses") %>%
+  spread(Week, "Percent of Week's Responses") %>%
+  kable(caption = "Percent of Respondents Providing Direct In-Person Services")
+
+QuantData %>%
+  left_join(WeeklyRespondents, by = "Week") %>%
+  filter(WorkLocation!="From home") %>%
+  group_by(Week, InPersonSummary, `Total Respondents per Week`) %>%
+  summarise(Count = n()) %>%
+  mutate("Percent of Week's Responses" = scales::percent(Count/`Total Respondents per Week`)) %>%
+  select(InPersonSummary, "Percent of Week's Responses") %>%
+  spread(Week, "Percent of Week's Responses") %>%
+  kable(caption = "Percent of Respondents Working at MHCD location or in Community who Provided Direct In-Person Services")
+
+# QuantData %>%
+#   left_join(WeeklyRespondents, by = "Week") %>%
+#   filter(InPersonSummary=="Yes") %>%
+#   group_by(Week, WorkLocation,`Total Respondents per Week`) %>%
+#   summarise(Count = n()) %>%
+#   mutate("Percent of Staff Providing Direct In-Person Services" = scales::percent(Count/`Total Respondents per Week`)) %>%
+#   select(WorkLocation, "Percent of Staff Providing Direct In-Person Services") %>%
+#   spread(Week, "Percent of Staff Providing Direct In-Person Services") %>%
+#   kable(caption = "Work Location of those Working In Person")
+
+```
+##Challenges Summary, All Responses
+```{r label=TopChallengesSummaryTimeSeries}
+QuantChallSummaryTable <- QuantData %>%
+  filter(Week==wk) %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) 
+QuantChallSummaryTableTOP <- QuantChallSummaryTable %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`) %>%
+  arrange(desc(N))
+QuantChallSummaryTableTOP %>%
+  kable(caption = "Top Challenge: Number and Percentage of People Selecting Each Challenge Type") %>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges")
+
+QuantChallSummaryTable %>%
+  select(Problem, "N" = `Any Challenge`, `Any Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Any Challenge: Number and Percentage of People Selecting Each Challenge Type") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected the problem as 'Challenge but not Top' or 'Top Challenge'")
+
+QuantChallSummaryTable %>%
+  select(Problem, "N" = `Not a Challenge`, `Not a Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Not a Challenge: Number and Percentage of People Selecting Each Challenge Type") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected the problem as 'Not a Challenge'")
+  
+```
+
+##Challenges Summary, Working from Home
+```{r label=TopChellengesSummary_WFHTimeSeries}
+QuantChallSummaryTableWFH <- QuantData %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) 
+QuantChallSummaryTableWFH %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Work from Home Top Challenge") %>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges")
+
+QuantChallSummaryTableWFH %>%
+  select(Problem, "N" = `Any Challenge`, `Any Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Work From Home Any Challenge") %>%
+  footnote(general = "Percentage is the percentage of all the week's responses who selected 'Work from Home' AND the problem as 'Challenge but not Top' or 'Top Challenge'")
+
+QuantChallSummaryTableWFH %>%
+  select(Problem, "N" = `Not a Challenge`, `Not a Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "Work from Home Not a Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'Work from Home' AND the problem as 'Not a Challenge'")
+```
+
+##Challenges Summary, Working at MHCD or In Community
+```{r label=TopChellengesSummary_notWFHTimeSeries}
+QuantChallSummaryTableNotWFH <- QuantData %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) 
+QuantChallSummaryTableNotWFH %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "MHCD or Community-Based Top Challenge") %>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges")
+
+QuantChallSummaryTableNotWFH %>%
+  select(Problem, "N" = `Any Challenge`, `Any Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "MHCD or Community-Based Any Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'work at MHCD or in community' AND the problem as 'Challenge but not Top' or 'Top Challenge'")
+
+QuantChallSummaryTableNotWFH %>%
+  select(Problem, "N" = `Not a Challenge`, `Not a Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "MHCD or Community-Based Not a Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'work at MHCD or in community' AND the problem as 'Not a Challenge'")
+```
+
+##Challenges Summary, Working In Person
+```{r label=TopChellengesSummary_InPersonTimeSeries}
+QuantChallSummaryTableInPerson <- QuantData %>%
+  filter(Week==wk, InPersonSummary=="Yes") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  replace(., is.na(.), 0) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) 
+QuantChallSummaryTableInPerson %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "In Person Top Challenge") %>%
+  footnote(general = "Percentages do not add up to 100% because staff could select up to 2 Top Challenges")
+
+QuantChallSummaryTableInPerson %>%
+  select(Problem, "N" = `Any Challenge`, `Any Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "In Person Any Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'provide direct in person services' AND the problem as 'Challenge but not Top' or 'Top Challenge'")
+
+QuantChallSummaryTableNotWFH %>%
+  select(Problem, "N" = `Not a Challenge`, `Not a Challenge Percent`) %>%
+  arrange(desc(N)) %>%
+  kable(caption = "In Person Not a Challenge") %>%
+  footnote(general = "Percentage is the percentage of all week's responses who selected 'provide direct in person services' AND the problem as 'Not a Challenge'")
+```
+
+
+#Week 1 Themes
+
+##Response Went Well
+```{r label=CodeFreqWeek1ResponseWell}
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==1, FilterOut!=TRUE) %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - What went well in MHCD's response to Crisis?")
+```
+###Theme Category Details - Response Went Well
+```{r label=CodeFreqWeek1ResponseWellDetails}
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==1, `Theme Grouping`=="Benefits") %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - Benefits Theme Group")
+
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==1, `Theme Grouping`=="Organizational Communication") %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - Organizational Communication Theme Group")
+
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==1, `Theme Grouping`=="Resource Delivery") %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - Resource Delivery Theme Group")
+
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==1, `Theme Grouping`=="Support") %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - Support Theme Group")
+```
+##Well-being Challenges
+```{r label=CodeFreqWeek1Chall_WB}
+P_ChallWB_Codes <- ChallWB_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallWB_Codes`,"P_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) 
+
+P_ChallWB_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Well-being") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Details on Well-being Challenges")
+
+S_ChallWB_Codes <- ChallWB_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallWB_Codes`,"S_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) 
+S_ChallWB_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Well-being") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Solutions to Well-being Challenges")
+```
+
+##Technology Challenges
+```{r label=CodeFreqWeek1Chall_Tech}
+P_ChallTech_Codes <- ChallTech_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallTech_Codes`,"P_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) 
+P_ChallTech_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Details on Technology Challenges")
+
+S_ChallTech_Codes <- ChallTech_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallTech_Codes`,"S_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) 
+S_ChallTech_Codes %>%
+    mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Solutions to Technology Challenges")
+```
+
+##Processes and Workflow Challenges
+```{r label=CodeFreqWeek1Chall_Process}
+P_ChallProcess_Codes <- ChallProcess_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallProcess_Codes`,"P_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) 
+P_ChallProcess_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Details on Processes and Workflow Challenges")
+
+S_ChallProcess_Codes <- ChallProcess_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallProcess_Codes`,"S_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) 
+S_ChallProcess_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Solutions to Processes and Workflow Challenges")
+```
+
+##Work In Person Challenges
+```{r label=CodeFreqWeek1Chall_InPerson}
+P_ChallInPerson_Codes <- ChallInPerson_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallInPerson_Codes`,"P_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) 
+P_ChallInPerson_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Details on Working in Person Challenges")
+
+S_ChallInPerson_Codes <- ChallInPerson_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallInPerson_Codes`,"S_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) 
+S_ChallInPerson_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Solutions to Working in Person Challenges")
+```
+
+##Work From Home Challenges
+```{r label=CodeFreqWeek1Chall_WFH}
+P_ChallWFH_Codes <- ChallWFH_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallWFH_Codes`,"P_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3))) 
+P_ChallWFH_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Details on Work From Home Challenges")
+
+S_ChallWFH_Codes <- ChallWFH_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallWFH_Codes`,"S_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3))) 
+S_ChallWFH_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Work from Home") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Solutions to Work From Home Challenges")
+```
+
+##Other Challenges
+```{r label=CodeFreqWeek1Chall_Other}
+P_ChallOther_Codes <- ChallOther_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallOther_Codes`,"P_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3))) 
+P_ChallOther_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Details on Other Challenges")
+
+S_ChallOther_Codes <- ChallOther_Codes %>%
+  filter(Week==1) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallOther_Codes`,"S_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3))) 
+S_ChallOther_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Solutions to Other Challenges")
+```
+
+##MHCD Resources and Support
+```{r label=CodeFreqWeek1MHCDresources}
+Resources_Codes %>%
+  filter(Week==1, FilterOut!=TRUE) %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`Resources_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`Resources_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - What Support or Resources can MHCD provide?")
+```
+###Theme Category Details - Resources and Support
+```{r label=CodeFreqWeek1MHCDresourcesDetails}
+Resources_Codes %>%
+  filter(Week==1, `Theme Grouping`=="PTO") %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`Resources_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `Resources_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - PTO Theme Group")
+
+Resources_Codes %>%
+  filter(Week==1, `Theme Grouping`=="Productivity Expectations") %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`Resources_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `Resources_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - Productivity Expectations Theme Group")
+
+Resources_Codes %>%
+  filter(Week==1, `Theme Grouping`=="Benefits") %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`Resources_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `Resources_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - Benefits Theme Group")
+
+```
+
+#Week 2 Themes
+##Response Went Well
+```{r label=CodeFreqWeek2ResponseWell}
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==2, FilterOut!=TRUE) %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 2 Responses - What went well in MHCD's response to Crisis?")
+```
+###Theme Category Details - Response Went Well
+```{r label=CodeFreqWeek2ResponseWellDetails}
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==2, `Theme Grouping`=="Benefits") %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 2 Responses - Benefits Theme Group")
+
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==2, `Theme Grouping`=="Organizational Communication") %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 2 Responses - Organizational Communication Theme Group")
+
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==2, `Theme Grouping`=="Resource Delivery") %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 2 Responses - Resource Delivery Theme Group")
+
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==2, `Theme Grouping`=="Support") %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `ResponseWentWellAppreciate_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 2 Responses - Support Theme Group")
+```
+##Well-being Challenges
+```{r label=CodeFreqWeek2Chall_WB}
+P_ChallWB_Codes <- ChallWB_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallWB_Codes`,"P_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) 
+
+P_ChallWB_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Well-being") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Details on Well-being Challenges")
+
+S_ChallWB_Codes <- ChallWB_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallWB_Codes`,"S_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) 
+S_ChallWB_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Well-being") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Solutions to Well-being Challenges")
+```
+
+##Technology Challenges
+```{r label=CodeFreqWeek2Chall_Tech2}
+P_ChallTech_Codes <- ChallTech_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallTech_Codes`,"P_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) 
+P_ChallTech_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Details on Technology Challenges")
+
+S_ChallTech_Codes <- ChallTech_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallTech_Codes`,"S_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) 
+S_ChallTech_Codes %>%
+    mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Solutions to Technology Challenges")
+```
+
+##Processes and Workflow Challenges
+```{r label=CodeFreqWeek1Chall_Process2}
+P_ChallProcess_Codes <- ChallProcess_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallProcess_Codes`,"P_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) 
+P_ChallProcess_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Details on Processes and Workflow Challenges")
+
+S_ChallProcess_Codes <- ChallProcess_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallProcess_Codes`,"S_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) 
+S_ChallProcess_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Solutions to Processes and Workflow Challenges")
+```
+
+##Work In Person Challenges
+```{r label=CodeFreqWeek1Chall_InPerson2}
+P_ChallInPerson_Codes <- ChallInPerson_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallInPerson_Codes`,"P_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) 
+P_ChallInPerson_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Details on Working in Person Challenges")
+
+S_ChallInPerson_Codes <- ChallInPerson_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallInPerson_Codes`,"S_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) 
+S_ChallInPerson_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Solutions to Working in Person Challenges")
+```
+
+##Work From Home Challenges
+```{r label=CodeFreqWeek1Chall_WFH2}
+P_ChallWFH_Codes <- ChallWFH_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallWFH_Codes`,"P_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3))) 
+P_ChallWFH_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Details on Work From Home Challenges")
+
+S_ChallWFH_Codes <- ChallWFH_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallWFH_Codes`,"S_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3))) 
+S_ChallWFH_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Work from Home") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Solutions to Work From Home Challenges")
+```
+
+##Other Challenges
+```{r label=CodeFreqWeek1Chall_Other2}
+P_ChallOther_Codes <- ChallOther_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallOther_Codes`,"P_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3))) 
+P_ChallOther_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Themes in Week 1 Responses - Details on Other Challenges")
+
+S_ChallOther_Codes <- ChallOther_Codes %>%
+  filter(Week==2) %>%
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  filter(str_starts(`ChallOther_Codes`,"S_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3))) 
+S_ChallOther_Codes %>%
+  mutate(Temp="ABC") %>%
+#doing cross join to the Top Challenges table to pull the CORRECT denominator
+  inner_join(QuantChallSummaryTableTOP %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - Solutions to Other Challenges")
+```
+
+##MHCD Resources and Support
+```{r label=CodeFreqWeek1MHCDresources2}
+Resources_Codes %>%
+  filter(Week==2, FilterOut!=TRUE) %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`Resources_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`Resources_Codes`) %>%
+  kable(caption = "Themes in Week 2 Responses - What Support or Resources can MHCD provide?")
+```
+###Theme Category Details - Resources and Support
+```{r label=CodeFreqWeek1MHCDresourcesDetails2}
+Resources_Codes %>%
+  filter(Week==2, `Theme Grouping`=="PTO") %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`Resources_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `Resources_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - PTO Theme Group")
+
+Resources_Codes %>%
+  filter(Week==2, `Theme Grouping`=="Productivity Expectations") %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`Resources_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `Resources_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 1 Responses - Productivity Expectations Theme Group")
+
+Resources_Codes %>%
+  filter(Week==2, `Theme Grouping`=="Benefits") %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`) %>%
+  distinct() %>%
+  left_join(WeeklyRespondents) %>%
+  group_by(`Resources_Codes`, `Total Respondents per Week`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/`Total Respondents per Week`)) %>%
+  rename(Theme = `Resources_Codes`) %>%
+  arrange(desc(`Code Instances`)) %>%
+  kable(caption = "Themes in Week 2 Responses - Benefits Theme Group")
+
+```
+
+
+
+
+
+#Work From Home Staff Weekly Theme Tables  
+These tables present data for the **current week** only.
+```{r label=WRHtablesPrep}
+WFHQuantChallSummaryTable <- QuantData %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`)
+```
+##Response Went Well
+```{r label=CodeFreqResponseWellWFH}
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  inner_join(QuantData %>%
+               group_by(Week, WorkLocation) %>%
+               count() %>%
+               filter(Week==wk, WorkLocation=="From home") %>%
+               select(Denom = n) %>%
+               mutate(Temp = "ABC", by = "Temp")) %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`, Denom) %>%
+  distinct() %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ResponseWentWellAppreciate_Codes`, "Total Work from Home" = Denom) %>%
+  kable(caption = "Staff Working from Home - What went well in MHCD's response to Crisis? [current week responses]")
+```
+
+##Well-being Challenges
+```{r label=CodeFreqChall_WBWFH}
+#Well-being challenges, work from home
+ChallWB_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWB_Codes`,"P_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Well-being") %>%
+               select(Denom = N) %>%
+               mutate(Temp = "ABC"), by = "Temp") %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`, "Total Work from Home" = Denom) %>%
+  kable(caption = "Staff Working from Home - Details on Well-being Challenges [current week response]")
+
+#Well-being solutions, work from home
+ChallWB_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWB_Codes`,"S_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Well-being") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`, "Total Work from Home" = Denom) %>%
+  kable(caption = "Staff Working from Home - Solutions to Well-being Challenges")
+```
+
+##Technology Challenges
+```{r label=CodeFreqChall_TechWFH}
+#Tech challenges, work from home
+ChallTech_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallTech_Codes`,"P_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) %>%
+  mutate(Temp="ABC") %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Staff Working from Home - Details on Technology Challenges [current week]")
+
+ChallTech_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallTech_Codes`,"S_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) %>%
+  mutate(Temp="ABC") %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Staff Working from Home - Solutions to Technology Challenges [current week]")
+```
+
+##Processes and Workflow Challenges
+```{r label=CodeFreqChall_Process_WFH}
+#Tech challenges, work from home
+ChallProcess_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallProcess_Codes`,"P_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Staff Working from Home - Details on Processes and Workflow Challenges [current week]")
+
+ChallProcess_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallProcess_Codes`,"S_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3)))  %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Solutions to Processes and Workflow Challenges [current week]")
+```
+
+##Work In Person Challenges
+```{r label=CodeFreqChall_InPersonWFH}
+#Work in person challenges, work from home
+ChallInPerson_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallInPerson_Codes`,"P_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3)))  %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Staff Working from Home - Details on Working in Person Challenges [current week]")
+
+ChallInPerson_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallInPerson_Codes`,"S_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Staff Working from Hom - Solutions to Working in Person Challenges [current week]")
+```
+
+##Work From Home Challenges
+```{r label=CodeFreqChall_WFH_WFH}
+#Work from home challenges, work from home
+ChallWFH_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWFH_Codes`,"P_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3)))  %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Staff Working from Home - Details on Work From Home Challenges [current week]")
+
+ChallWFH_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWFH_Codes`,"S_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3)))  %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Work from Home") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Staff Working from Home - Solutions to Work From Home Challenges [current week]")
+```
+
+##Other Challenges
+```{r label=CodeFreqChall_OtherWFH}
+#Other challenges, work from home
+ChallOther_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%  
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallOther_Codes`,"P_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3))) %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Staff Working from Home - Details on Other Challenges [current week]")
+
+ChallOther_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%  
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallOther_Codes`,"S_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3)))  %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Staff Working from Home - Solutions to Other Challenges [current week]")
+```
+
+##MHCD Resources and Support
+```{r label=CodeFreqMHCDresourcesWFH}
+Resources_Codes %>%
+  filter(Week==wk, WorkLocation=="From home") %>%
+  mutate(Temp="ABC") %>%
+  inner_join(QuantData %>%
+               group_by(Week, WorkLocation) %>%
+               count() %>%
+               filter(Week==wk, WorkLocation=="From home") %>%
+               select(Denom = n) %>%
+               mutate(Temp = "ABC", by = "Temp")) %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`, Denom) %>%
+  distinct() %>%
+  group_by(`Resources_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`Resources_Codes`) %>%
+  kable(caption = "Staff Working from Hom - What Support or Resources can MHCD provide? [current week responses]")
+```
+
+
+
+#Work at MHCD Location or In Community Staff Weekly Theme Tables  
+These tables present data for the **current week** only.
+```{r label=NotAtHomeWeeklySummariesprep}
+NOThomeQuantChallSummaryTable <- QuantData %>%
+  filter(Week==wk, WorkLocSummary=="MHCD or Community") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`)
+```
+##Response Went Well
+```{r label=CodeFreqResponseWell_NOT_WFH}
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==wk, WorkLocSummary=="MHCD or Community") %>%
+  mutate(Temp="ABC") %>%
+  inner_join(QuantData %>%
+               group_by(Week, WorkLocSummary) %>%
+               count() %>%
+               filter(Week==wk, WorkLocSummary=="MHCD or Community") %>%
+               select(Denom = n) %>%
+               mutate(Temp = "ABC", by = "Temp")) %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`, Denom) %>%
+  distinct() %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ResponseWentWellAppreciate_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - What went well in MHCD's response to Crisis? [current week responses]")
+```
+
+##Well-being Challenges
+```{r label=CodeFreqChall_WBnotWFH}
+#Well-being challenges, work from MHCd or community
+ChallWB_Codes %>%
+  filter(Week==wk, WorkLocSummary=="MHCD or Community") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWB_Codes`,"P_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="Well-being") %>%
+               select(Denom = N) %>%
+               mutate(Temp = "ABC"), by = "Temp") %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or in Community - Details on Well-being Challenges [current week response]")
+
+#Well-being solutions, work from MHCD or community
+ChallWB_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWB_Codes`,"S_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="Well-being") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or in Community - Solutions to Well-being Challenges [current week]")
+```
+
+##Technology Challenges
+```{r label=CodeFreqChall_Tech_notWFH}
+ChallTech_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallTech_Codes`,"P_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) %>%
+  mutate(Temp="ABC") %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Details on Technology Challenges [current week]")
+
+ChallTech_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallTech_Codes`,"S_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) %>%
+  mutate(Temp="ABC") %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Solutions to Technology Challenges [current week]")
+```
+
+##Processes and Workflow Challenges
+```{r label=CodeFreqChall_Process_notWFH}
+ChallProcess_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallProcess_Codes`,"P_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Details on Processes and Workflow Challenges [current week]")
+
+ChallProcess_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallProcess_Codes`,"S_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3)))  %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Solutions to Processes and Workflow Challenges [current week]")
+```
+
+##Work In Person Challenges
+```{r label=CodeFreqChall_InPerson_notWFH}
+ChallInPerson_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallInPerson_Codes`,"P_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3)))  %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Details on Working in Person Challenges [current week]")
+
+ChallInPerson_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallInPerson_Codes`,"S_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Solutions to Working in Person Challenges [current week]")
+```
+
+##Work From Home Challenges
+```{r label=CodeFreqChall_WFH_notWFH}
+ChallWFH_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWFH_Codes`,"P_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3)))  %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Details on Work From Home Challenges [current week]")
+
+ChallWFH_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWFH_Codes`,"S_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3)))  %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="Work from Home") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Solutions to Work From Home Challenges [current week]")
+```
+
+##Other Challenges
+```{r label=CodeFreqChall_Other_notWFH}
+ChallOther_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%  
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallOther_Codes`,"P_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3))) %>%
+  inner_join(NOThomeQuantChallSummaryTable %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Details on Other Challenges [current week]")
+
+ChallOther_Codes %>%
+  filter(Week==wk, WorkLocation!="From home") %>%
+  mutate(Temp="ABC") %>%  
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallOther_Codes`,"S_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3)))  %>%
+  inner_join(WFHQuantChallSummaryTable %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Solutions to Other Challenges [current week]")
+```
+
+##MHCD Resources and Support
+```{r label=CodeFreqMHCDresources_notWFH}
+Resources_Codes %>%
+  filter(Week==wk, WorkLocSummary=="MHCD or Community") %>%
+  mutate(Temp="ABC") %>%
+  inner_join(QuantData %>%
+               group_by(Week, WorkLocSummary) %>%
+               count() %>%
+               filter(Week==wk, WorkLocSummary=="MHCD or Community") %>%
+               select(Denom = n) %>%
+               mutate(Temp = "ABC", by = "Temp")) %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`, Denom) %>%
+  distinct() %>%
+  group_by(`Resources_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`Resources_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - What Support or Resources can MHCD provide? [current week]")
+
+```
+
+
+#In Person Staff Weekly Theme Tables  
+These tables present data for the **current week** only.
+```{r label=InPersonWeeklySummariesprep}
+InPersonQuantChallSummaryTable <- QuantData %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  gather(Problem, Rank,7:12) %>%
+  mutate("Total Responses" = n_distinct(StaffID)) %>%
+  mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+                          ifelse(Problem=="OtherRank","Other",
+                                 ifelse(Problem=="ProcessRank","Processes and Workflows",
+                                        ifelse(Problem=="TechRank","Technology",
+                                               ifelse(Problem=="WBrank","Well-being",
+                                                      ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+  group_by(Problem, Rank) %>%
+  summarise(Count = n()) %>%
+  spread(Rank, Count) %>%
+  replace(., is.na(.), 0) %>%
+  mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+         "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+         "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+         "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+         "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) %>%
+  select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`)
+```
+##Response Went Well
+```{r label=CodeFreqResponseWell_inPerson}
+ResponseWentWellAppreciate_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  inner_join(QuantData %>%
+               mutate(WorkInPersonYN=ifelse(WorkInPersonYN=="Yes","Yes","No")) %>%
+               group_by(Week, WorkInPersonYN) %>%
+               count() %>%
+               filter(Week==wk, WorkInPersonYN=="Yes") %>%
+               select(Denom = n) %>%
+               mutate(Temp = "ABC", by = "Temp")) %>%
+  select(RecordedDate, `StaffID`, Week, `ResponseWentWellAppreciate_Codes`, Denom) %>%
+  distinct() %>%
+  group_by(`ResponseWentWellAppreciate_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ResponseWentWellAppreciate_Codes`) %>%
+  kable(caption = "Staff Working In Person - What went well in MHCD's response to Crisis? [current week responses]")
+```
+
+##Well-being Challenges
+```{r label=CodeFreqChall_WBinPerson}
+#Well-being challenges, work from MHCd or community
+ChallWB_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWB_Codes`,"P_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Well-being") %>%
+               select(Denom = N) %>%
+               mutate(Temp = "ABC"), by = "Temp") %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`) %>%
+  kable(caption = "Staff Working in Person - Details on Well-being Challenges [current week response]")
+
+#Well-being solutions, work from MHCD or community
+ChallWB_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWB_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWB_Codes`,"S_")|ChallWB_Codes=="Unknown") %>%
+  mutate(ChallWB_Codes=ifelse(ChallWB_Codes=="Unknown",`ChallWB_Codes`,str_sub(ChallWB_Codes, 3))) %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Well-being") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallWB_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWB_Codes`) %>%
+  kable(caption = "Staff Working in Person - Solutions to Well-being Challenges [current week]")
+```
+
+##Technology Challenges
+```{r label=CodeFreqChall_Tech_inPerson}
+ChallTech_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallTech_Codes`,"P_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) %>%
+  mutate(Temp="ABC") %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Staff Working in Person - Details on Technology Challenges [current week]")
+
+ChallTech_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallTech_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallTech_Codes`,"S_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) %>%
+  mutate(Temp="ABC") %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Technology") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallTech_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallTech_Codes`) %>%
+  kable(caption = "Staff Working in Person - Solutions to Technology Challenges [current week]")
+```
+
+##Processes and Workflow Challenges
+```{r label=CodeFreqChall_Process_inPerson}
+ChallProcess_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallProcess_Codes`,"P_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Staff Working in Person - Details on Processes and Workflow Challenges [current week]")
+
+ChallProcess_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallProcess_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallProcess_Codes`,"S_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3)))  %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Processes and Workflows") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallProcess_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallProcess_Codes`) %>%
+  kable(caption = "Staff Working in Person - Solutions to Processes and Workflow Challenges [current week]")
+```
+
+##Work In Person Challenges
+```{r label=CodeFreqChall_InPerson_inPerson}
+ChallInPerson_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallInPerson_Codes`,"P_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3)))  %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Staff Working in Person - Details on Working in Person Challenges [current week]")
+
+ChallInPerson_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallInPerson_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallInPerson_Codes`,"S_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallInPerson_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallInPerson_Codes`) %>%
+  kable(caption = "Staff Working in Person - Solutions to Working in Person Challenges [current week]")
+```
+
+##Work From Home Challenges
+```{r label=CodeFreqChall_WFH_inPerson}
+ChallWFH_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWFH_Codes`,"P_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3)))  %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="In Person Work") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Staff Working in Person - Details on Work From Home Challenges [current week]")
+
+ChallWFH_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  select(RecordedDate, `StaffID`, Week, `ChallWFH_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWFH_Codes`,"S_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3)))  %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Work from Home") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = c("Temp"="Temp")) %>%
+  group_by(`ChallWFH_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallWFH_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Solutions to Work From Home Challenges [current week]")
+```
+
+##Other Challenges
+```{r label=CodeFreqChall_Other_inPerson}
+ChallOther_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%  
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallOther_Codes`,"P_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3))) %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Details on Other Challenges [current week]")
+
+ChallOther_Codes %>%
+  filter(Week==wk, WorkInPersonYN=="Yes") %>%
+  mutate(Temp="ABC") %>%  
+  select(RecordedDate, `StaffID`, Week, `ChallOther_Codes`, Temp) %>%
+  distinct() %>%
+  filter(str_starts(`ChallOther_Codes`,"S_")|ChallOther_Codes=="Unknown") %>%
+  mutate(ChallOther_Codes=ifelse(ChallOther_Codes=="Unknown",`ChallOther_Codes`,str_sub(ChallOther_Codes, 3)))  %>%
+  inner_join(InPersonQuantChallSummaryTable %>%
+              filter(Problem=="Other") %>%
+              select(Denom = N) %>%
+              mutate(Temp="ABC"), by = "Temp") %>%
+  group_by(`ChallOther_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`ChallOther_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - Solutions to Other Challenges [current week]")
+```
+
+##MHCD Resources and Support
+```{r label=CodeFreqMHCDresources_inPerson}
+Resources_Codes %>%
+  filter(Week==wk, InPersonSummary=="Yes") %>%
+  mutate(Temp="ABC") %>%
+  inner_join(QuantData %>%
+               group_by(Week, InPersonSummary) %>%
+               count() %>%
+               filter(Week==wk, InPersonSummary=="Yes") %>%
+               select(Denom = n) %>%
+               mutate(Temp = "ABC", by = "Temp")) %>%
+  select(RecordedDate, `StaffID`, Week, `Resources_Codes`, Denom) %>%
+  distinct() %>%
+  group_by(`Resources_Codes`, Denom) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+  drop_na() %>%
+  mutate("Code Coverge by Respondents" = scales::percent(`Code Instances`/Denom)) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=`Resources_Codes`) %>%
+  kable(caption = "Staff Working from MHCD or Community - What Support or Resources can MHCD provide? [current week]")
+```
+
+
+
+
+#NOT In-Person Services Themes
+**I did not create these tables because it seemed unnecessary**
+```{r label=NOtinPersonWeeklySummariesprep}
+# NOTinPersonQuantChallSummaryTable <- QuantData %>%
+#   filter(Week==wk, WorkLocation!="From home") %>%
+#   gather(Problem, Rank,7:12) %>%
+#   mutate("Total Responses" = n_distinct(StaffID)) %>%
+#   mutate(Problem = ifelse(Problem=="InPersonRank","In Person Work",
+#                           ifelse(Problem=="OtherRank","Other",
+#                                  ifelse(Problem=="ProcessRank","Processes and Workflows",
+#                                         ifelse(Problem=="TechRank","Technology",
+#                                                ifelse(Problem=="WBrank","Well-being",
+#                                                       ifelse(Problem=="WFHrank","Work from Home",NA))))))) %>%
+#   group_by(Problem, Rank) %>%
+#   summarise(Count = n()) %>%
+#   spread(Rank, Count) %>%
+#   mutate(Total = `Challenge but not Top` + `Not a Challenge` + `Top Challenge` + `<NA>`, "Any Challenge" = `Challenge but not Top`+`Top Challenge`, 
+#          "Top Challenge Percent" = scales::percent(`Top Challenge`/Total), 
+#          "Any Challenge Percent" = scales::percent((`Top Challenge`+`Challenge but not Top`)/Total),
+#          "Challenge but not Top Percent" = scales::percent(`Challenge but not Top`/Total),
+#          "Not a Challenge Percent" = scales::percent(`Not a Challenge`/Total)) %>%
+#   select(Problem, "N" = `Top Challenge`, `Top Challenge Percent`)
+```
+
+
+
+#Themes per Question, With Each Week in Columns
+This section has tables sorted by the frequency of the current week. It shows the frequency and code coverage for all weeks, with most recent weeks in the leftmost columns. **THIS SECTION NEEDS TO BE MANUALLY UPDATED EACH WEEK TO PULL IN NEW WEEK'S DATA!**
+
+
+
+#Clinical Team Groupings Breakdown
+These tables provide a summary of the count of instances of each code, grouped by Clinical Team Grouping (i.e. Child and Family vs HITT vs Medical Providers), with a separate table for each challenge type.  
+
+##Challenges with Technology
+```{r label=TechChallCodes_TeamGroup}
+RespByTeamGrouping <- RRdemosTeamGrouping %>%
+               select(TeamGrouping, Respondents) %>%
+               spread(TeamGrouping, Respondents)
+
+ChallTech_Codes %>%
+  select(`StaffID`, `ChallTech_Codes`, TeamGrouping) %>%
+  distinct() %>%
+  filter(str_starts(`ChallTech_Codes`,"P_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) %>%
+#Teams, Phones and the PWS and staff lack technology/equipment etc?
+  filter(ChallTech_Codes %in% c("MS Teams", "Phones", "Staff Lack of Tech Equipment", "Staff Lack of Tech Skills Knowledge", "PWS Lack of Access to Tech",
+                               "Video", "Zoom")) %>%
+  group_by(TeamGrouping, `ChallTech_Codes`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+#  drop_na() %>%
+  spread(TeamGrouping, `Code Instances`) %>%
+  # mutate("CF Responses" = RespByTeamGrouping[1,1], "CTT Responses" = RespByTeamGrouping[1,2], "Emerson Responses" = RespByTeamGrouping[1,3], 
+  #        "HITT Responses" = RespByTeamGrouping[1,4], "MedProviders Responses" = RespByTeamGrouping[1,5], "OPT Responses" = RespByTeamGrouping[1,6],
+  #        "Rehab Rsponses" = RespByTeamGrouping[1,7], "Residential Responses" = RespByTeamGrouping[1,8])
+  kable(caption = "Themes in Technology Challenges by Clinical Team Grouping")
+```
+
+##Challenges with Working from Home
+```{r label=WFHChallCodes_TeamGroup}
+ChallWFH_Codes %>%
+  select(`StaffID`, `ChallWFH_Codes`, TeamGrouping) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWFH_Codes`,"P_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3))) %>%
+#WHICH CODES ARE WE INTERESTED IN?
+  # filter(ChallWFH_Codes %in% c("MS Teams", "Phones", "Staff Lack of Tech Equipment", "Staff Lack of Tech Skills Knowledge", "PWS Lack of Access to Tech",
+  #                              "Video", "Zoom")) %>%
+  group_by(TeamGrouping, `ChallWFH_Codes`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+#  drop_na() %>%
+  spread(TeamGrouping, `Code Instances`) %>%
+  # mutate("CF Responses" = RespByTeamGrouping[1,1], "CTT Responses" = RespByTeamGrouping[1,2], "Emerson Responses" = RespByTeamGrouping[1,3], 
+  #        "HITT Responses" = RespByTeamGrouping[1,4], "MedProviders Responses" = RespByTeamGrouping[1,5], "OPT Responses" = RespByTeamGrouping[1,6],
+  #        "Rehab Rsponses" = RespByTeamGrouping[1,7], "Residential Responses" = RespByTeamGrouping[1,8])
+  kable(caption = "Themes in Work from Home Challenges by Clinical Team Grouping")
+```
+
+
+##Challenges with Working In Person
+```{r label=InPersonChallCodes_TeamGroup}
+ChallInPerson_Codes %>%
+  select(`StaffID`, `ChallInPerson_Codes`, TeamGrouping) %>%
+  distinct() %>%
+  filter(str_starts(`ChallInPerson_Codes`,"P_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) %>%
+#WHICH CODES ARE WE INTERESTED IN?
+  # filter(ChallInPerson_Codes %in% c("MS Teams", "Phones", "Staff Lack of Tech Equipment", "Staff Lack of Tech Skills Knowledge", "PWS Lack of Access to Tech",
+  #                              "Video", "Zoom")) %>%
+  group_by(TeamGrouping, `ChallInPerson_Codes`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+#  drop_na() %>%
+  spread(TeamGrouping, `Code Instances`) %>%
+  # mutate("CF Responses" = RespByTeamGrouping[1,1], "CTT Responses" = RespByTeamGrouping[1,2], "Emerson Responses" = RespByTeamGrouping[1,3], 
+  #        "HITT Responses" = RespByTeamGrouping[1,4], "MedProviders Responses" = RespByTeamGrouping[1,5], "OPT Responses" = RespByTeamGrouping[1,6],
+  #        "Rehab Rsponses" = RespByTeamGrouping[1,7], "Residential Responses" = RespByTeamGrouping[1,8])
+  kable(caption = "Themes in Working in Person Challenges by Clinical Team Grouping")
+```
+
+##Challenges with Processes
+```{r label=ProcessChallCodes_TeamGroup}
+ChallProcess_Codes %>%
+  select(`StaffID`, `ChallProcess_Codes`, TeamGrouping) %>%
+  distinct() %>%
+  filter(str_starts(`ChallProcess_Codes`,"P_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) %>%
+#WHICH CODES ARE WE INTERESTED IN?
+  # filter(ChallProcess_Codes %in% c("MS Teams", "Phones", "Staff Lack of Tech Equipment", "Staff Lack of Tech Skills Knowledge", "PWS Lack of Access to Tech",
+  #                              "Video", "Zoom")) %>%
+  group_by(TeamGrouping, `ChallProcess_Codes`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+#  drop_na() %>%
+  spread(TeamGrouping, `Code Instances`) %>%
+  # mutate("CF Responses" = RespByTeamGrouping[1,1], "CTT Responses" = RespByTeamGrouping[1,2], "Emerson Responses" = RespByTeamGrouping[1,3], 
+  #        "HITT Responses" = RespByTeamGrouping[1,4], "MedProviders Responses" = RespByTeamGrouping[1,5], "OPT Responses" = RespByTeamGrouping[1,6],
+  #        "Rehab Rsponses" = RespByTeamGrouping[1,7], "Residential Responses" = RespByTeamGrouping[1,8])
+  kable(caption = "Themes in Processes Challenges by Clinical Team Grouping")
+```
+
+#Clinical vs NonClinical Role Breakdown
+These tables provide a summary of the count of instances of each code, grouped by Clinical and Non-Clinical roles, with a separate table for each challenge type.  
+
+##Challenges with Technology
+```{r label=TechChallCodes_ClinNon}
+ChallTech_Codes %>%
+  select(`StaffID`, `ChallTech_Codes`, ClinicalYN) %>%
+  distinct() %>%
+  filter(str_starts(`ChallTech_Codes`,"P_")|ChallTech_Codes=="Unknown") %>%
+  mutate(ChallTech_Codes=ifelse(ChallTech_Codes=="Unknown",`ChallTech_Codes`,str_sub(ChallTech_Codes, 3))) %>%
+#Teams, Phones and the PWS and staff lack technology/equipment etc?
+  filter(ChallTech_Codes %in% c("MS Teams", "Phones", "Staff Lack of Tech Equipment", "Staff Lack of Tech Skills Knowledge", "PWS Lack of Access to Tech",
+                               "Video", "Zoom")) %>%
+  group_by(ClinicalYN, `ChallTech_Codes`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+#  drop_na() %>%
+  spread(ClinicalYN, `Code Instances`) %>%
+  kable(caption = "Themes in Technology Challenges by Clinical Role")
+```
+
+##Challenges with Working from Home
+```{r label=WFHChallCodes_ClinNon}
+ChallWFH_Codes %>%
+  select(`StaffID`, `ChallWFH_Codes`, ClinicalYN) %>%
+  distinct() %>%
+  filter(str_starts(`ChallWFH_Codes`,"P_")|ChallWFH_Codes=="Unknown") %>%
+  mutate(ChallWFH_Codes=ifelse(ChallWFH_Codes=="Unknown",`ChallWFH_Codes`,str_sub(ChallWFH_Codes, 3))) %>%
+#WHICH CODES ARE WE INTERESTED IN?
+  # filter(ChallWFH_Codes %in% c("MS Teams", "Phones", "Staff Lack of Tech Equipment", "Staff Lack of Tech Skills Knowledge", "PWS Lack of Access to Tech",
+  #                              "Video", "Zoom")) %>%
+  group_by(ClinicalYN, `ChallWFH_Codes`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+#  drop_na() %>%
+  spread(ClinicalYN, `Code Instances`) %>%
+  kable(caption = "Themes in Work from Home Challenges by Clinical Team Grouping")
+```
+
+
+##Challenges with Working In Person
+```{r label=InPersonChallCodes_ClinNon}
+ChallInPerson_Codes %>%
+  select(`StaffID`, `ChallInPerson_Codes`, ClinicalYN) %>%
+  distinct() %>%
+  filter(str_starts(`ChallInPerson_Codes`,"P_")|ChallInPerson_Codes=="Unknown") %>%
+  mutate(ChallInPerson_Codes=ifelse(ChallInPerson_Codes=="Unknown",`ChallInPerson_Codes`,str_sub(ChallInPerson_Codes, 3))) %>%
+#WHICH CODES ARE WE INTERESTED IN?
+  # filter(ChallInPerson_Codes %in% c("MS Teams", "Phones", "Staff Lack of Tech Equipment", "Staff Lack of Tech Skills Knowledge", "PWS Lack of Access to Tech",
+  #                              "Video", "Zoom")) %>%
+  group_by(ClinicalYN, `ChallInPerson_Codes`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+#  drop_na() %>%
+  spread(ClinicalYN, `Code Instances`) %>%
+  kable(caption = "Themes in Working in Person Challenges by Clinical Team Grouping")
+```
+
+##Challenges with Processes
+```{r label=ProcessChallCodes_ClinNon}
+ChallProcess_Codes %>%
+  select(`StaffID`, `ChallProcess_Codes`, ClinicalYN) %>%
+  distinct() %>%
+  filter(str_starts(`ChallProcess_Codes`,"P_")|ChallProcess_Codes=="Unknown") %>%
+  mutate(ChallProcess_Codes=ifelse(ChallProcess_Codes=="Unknown",`ChallProcess_Codes`,str_sub(ChallProcess_Codes, 3))) %>%
+#WHICH CODES ARE WE INTERESTED IN?
+  # filter(ChallProcess_Codes %in% c("MS Teams", "Phones", "Staff Lack of Tech Equipment", "Staff Lack of Tech Skills Knowledge", "PWS Lack of Access to Tech",
+  #                              "Video", "Zoom")) %>%
+  group_by(ClinicalYN, `ChallProcess_Codes`) %>%
+  summarise("Code Instances" = n_distinct(`StaffID`)) %>%
+#  drop_na() %>%
+  spread(ClinicalYN, `Code Instances`) %>%
+  kable(caption = "Themes in Processes Challenges by Clinical Team Grouping")
+```
+
+
+#Limitations
+
+
+#Discussion
+
+

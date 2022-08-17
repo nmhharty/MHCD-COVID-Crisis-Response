@@ -1,0 +1,201 @@
+---
+title: "COVID-19 Crisis Response Evaluation"
+author:
+- name: Nicole Harty
+  affiliation: Program Evaluator
+  email: nicole.harty@mhcd.org
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    css: template.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+library(RODBC)
+library(tidyverse)
+library(likert)
+library(lubridate)
+library(kableExtra)
+library(qualtRics)
+
+#READ IN THE SOURCE SCRIPT THAT YOU USED TO CLEAN AND PREP YOUR DATA
+source('../QualtricsDataWrangling.R', echo = FALSE)
+```
+
+#Executive Summary
+
+#Project Description
+In response to the COVID-19 pandemic spread through Colorado in March 2020, the Mental Health Center of Denver gathered their Crisis Management Team to respond. A major component of this response was the decision to move to virtual care and remote work across the organization beginning March 16, 2020.
+
+The Applied Research Team (ART) was tasked with conducting an evaluation of this crisis response in order to answer the following questions  
+
+1. What is going well in this transition and response?
+2. What challenges are staff experiencing?
+3. What are the ways in which the organization (Mental Health Center of Denver) can support staff in this transition?
+4. How effective was the Crisis Management Team in responding to the growing COVID-19 crisis?
+5. What learnings can come from this experience in order to inform future responses to crises?
+
+In an effort to answer the first three questions, ART administered a weekly survey to all staff beginning March 26, 2020.
+
+#Evaluation Approach
+All survey responses were analyzed using an inductive themetic coding approach and reviewed by the Applied Research Team for completeness, accuracy, and saturation.
+
+Demographic data comes from our employee database and is current as of a March 31, 2020 snapshot. Stratification of themes by demographic characteristics is limited to groupings in which we have sufficient responses to maintain anonymity.
+
+#Response Rate
+<!--3/30/2020 doesn't account for duplicate responses. Need to update for "did we ever receive a response" vs "did we receive a response each week" -->
+Overall, we have received responses from **`r OverallResponsePercent`** of our staff. We have received a total of **`r COVIDtrim %>% tally()`** responses<!--, including responses from the same staff over multiple weeks-->. We received differing number of responses each week:
+```{r label=WeeklyResponses}
+COVIDtrim %>%
+  group_by(Week) %>%
+  tally() %>%
+  kable(caption = "Survey Responses by Distribution Week")
+```
+
+The tables below describe the response rate by various groupings.
+```{r label=ResponseRate}
+RRprep %>%
+  summarise(Respondents = sum(ResponseNum), Total = n_distinct(`Full Name`), "Percent Responded" = scales::percent(Respondents/Total)) %>%
+  kable(caption = "Overall Response Rate")
+
+RRprep %>%
+  group_by(`Primary Team`) %>%
+  summarise(Respondents = sum(ResponseNum), Total = n_distinct(`Full Name`), "Percent Responded" = scales::percent(Respondents/Total)) %>%
+  kable(caption = "Response Rate by Team")
+
+RRprep %>%
+  group_by(`Primary Team Division`) %>%
+  summarise(Respondents = sum(ResponseNum), Total = n_distinct(`Full Name`), "Percent Responded" = scales::percent(Respondents/Total)) %>%
+  kable(caption = "Response Rate by Division")
+```
+
+#Respondent Demographics
+<!--Add in grouping for response week-->
+The following tables describe the demographic characteristics of survey respondents as compared to the entire staff population.
+``` {r label=RespondentDemographics}
+COVIDtrim %>%
+  group_by(`Job Title Grouping`) %>%
+  summarise(n = n()) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  top_n(5) %>%
+  kable(caption = "Responses by Job Title Grouping")
+
+ResponseDemosDivision <- COVIDtrim %>%
+# group_by(Week) %>%
+  group_by(`Primary Team Division`) %>%
+  summarise(n = n()) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Primary Team Division")
+
+COVIDtrim %>%
+# group_by(Week) %>%
+  group_by(ClinicalYN) %>%
+  summarise(n = n()) %>%
+  rename("Provides Clinical Services" = ClinicalYN) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Staff Providing Clinical Services")
+
+COVIDtrim %>%
+# group_by(Week) %>%
+  group_by(`Length of Employment`) %>%
+  summarise(n = n()) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Length of Employment")
+
+COVIDtrim %>%
+# group_by(Week) %>%
+  group_by(Gender) %>%
+  summarise(n = n()) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Gender")
+
+COVIDtrim %>%
+# group_by(Week) %>%
+  group_by(Race) %>%
+  summarise(n = n()) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Race")
+
+COVIDtrim %>%
+# group_by(Week) %>%
+  group_by(`Is Supervisor?`) %>%
+  summarise(n = n()) %>%
+  mutate("Percent of all Responses" = scales::percent(n / sum(n))) %>%
+  kable(caption = "Responses Grouped by Supervisory Status")
+```
+
+#Themes by Question
+The following tables provide a summary of the top themes in response to each question in the survey. As of **`r format(Sys.Date(), "%D")`** only the top 25% of codes are included.
+``` {r label=CodeFreqEachQuestion}
+#Create summary tables of codes
+codesLong %>%
+  group_by(CodeWW) %>%
+  summarise("Code Instances" = n_distinct(`Full Name`)) %>%
+  drop_na() %>%
+  top_frac(.25) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=CodeWW) %>%
+  kable(caption = "Themes in Responses to What went well this week?")
+codesLong %>%
+  group_by(CodeChall) %>%
+  summarise("Code Instances" = n_distinct(`Full Name`)) %>%
+  drop_na() %>%
+  top_frac(.25) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=CodeChall) %>%
+  kable(caption = "Themes in Responses to What were your biggest challenges this week?")
+codesLong %>%
+  group_by(CodeSC) %>%
+  summarise("Code Instances" = n_distinct(`Full Name`)) %>%
+  drop_na() %>%
+  top_frac(.25) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=CodeSC) %>%
+  kable(caption = "Themes in Responses to What have you been doing to support your self-care and well-being this week?")
+codesLong %>%
+  group_by(CodeMHCD) %>%
+  summarise("Code Instances" = n_distinct(`Full Name`)) %>%
+  drop_na() %>%
+  top_frac(.25) %>%
+  arrange(desc(`Code Instances`)) %>%
+  rename("Theme"=CodeMHCD) %>%
+  kable(caption = "Themes in Responses to How can MHCD support you during this transition?")
+```
+
+##Themes Grouped by Staff Demographics
+THIS IS AN EXAMPLE OF WHAT WE CAN DO - HOW DO WE **ACTUALLY** want to group themes?
+
+OPTION 1 = gives top 25% more frequent codes, for each gender
+```{r label=ThemesByDemos1}
+codesLong %>%
+  group_by(Gender, CodeWW) %>%
+  summarise("Code Instances" = n_distinct(`Full Name`)) %>%
+  drop_na() %>%
+  top_frac(.25) %>%
+  spread(Gender, "Code Instances") %>%
+  rename("Theme"=CodeWW) %>%
+  kable()
+```
+
+OPTION 2 = gives top 25% more frequent codes overall, then splits those counts out by gender
+```{r label=ThemesByDemos2}
+codesLong %>%
+  group_by(Gender, CodeWW) %>%
+  summarise("Code Instances" = n_distinct(`Full Name`)) %>%
+  drop_na() %>%
+  top_frac(.25) %>%
+  spread(Gender, "Code Instances") %>%
+  rename("Theme"=CodeWW) %>%
+  kable()
+```
+
+
+#Limitations
+Through Arpil 9, 2020, demographic data is limited to those staff who were actively employed as of March 31, 2020 and only staff who were actively employed as of March 15 received the survey. Future iterations of this survey will allow for flexibilty in survey distribution and reporting. 
+
+#Discussion
+
+
